@@ -1,0 +1,162 @@
+ampus Marketplace - Complete Run Guide
+1. Run Backend Locally
+
+Open terminal:
+
+cd backend
+npm install
+
+Start SAM API locally:
+
+sam build
+sam local start-api
+
+You should see:
+
+Mounting CreateListingFunction at http://127.0.0.1:3000/listings [POST]
+Mounting GetListingsFunction at http://127.0.0.1:3000/listings [GET]
+...
+
+Backend URL:
+
+http://127.0.0.1:3000
+
+Test:
+
+http://127.0.0.1:3000/listings
+2. Run Frontend Locally
+
+Open a second terminal:
+
+cd frontend
+npm install
+
+Set .env:
+
+For local backend:
+
+VITE_API_BASE_URL=http://127.0.0.1:3000
+
+Run:
+
+npm run dev
+
+Frontend:
+
+http://localhost:5173
+Production Setup (AWS)
+Backend
+
+Already deployed:
+
+API Gateway
+Lambda
+DynamoDB
+S3
+
+Example:
+
+VITE_API_BASE_URL=https://pmru4f6nhf.execute-api.us-east-1.amazonaws.com/prod
+Frontend Build
+cd frontend
+npm run build
+
+Creates:
+
+frontend/dist
+Upload Frontend to S3
+
+Upload contents of:
+
+dist/
+
+to:
+
+campus-marketplace-frontend2026
+
+Enable:
+
+Properties
+→ Static Website Hosting
+
+Index:
+
+index.html
+
+Error:
+
+index.html
+Testing Checklist
+Authentication
+Register User
+Login User
+Logout User
+
+Verify in DynamoDB:
+
+Users Table
+Listings
+Create Listing
+Edit Listing
+Delete Listing
+View Listing
+
+Verify in:
+
+Listings Table
+Image Upload
+
+Upload image.
+
+Verify in:
+
+S3 Bucket
+Admin
+
+Test:
+
+/admin/dashboard
+/admin/users
+/admin/listings
+/admin/reports
+Debugging
+Lambda Logs
+sam logs -n LoginFunction --stack-name campus-marketplace --tail
+
+or
+
+CloudWatch
+→ Log Groups
+API Test
+
+Example:
+
+https://pmru4f6nhf.execute-api.us-east-1.amazonaws.com/prod/listings
+
+Should return JSON.
+
+Frontend Build After Changes
+
+Whenever .env changes:
+
+npm run build
+
+Then re-upload dist to S3.
+
+Submission Package
+GitHub
+
+Contains:
+
+frontend/
+backend/
+template.yaml
+README.md
+.gitignore
+Hosted Website
+http://campus-marketplace-frontend2026.s3-website-us-east-1.amazonaws.com
+AWS Resources
+Lambda
+API Gateway
+DynamoDB
+S3
