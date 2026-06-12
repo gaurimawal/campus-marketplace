@@ -233,4 +233,4 @@ aws cloudformation deploy \
 
 
 
-
+link = http://campus-marketplace-frontend2026.s3-website-us-east-1.amazonaws.com/
