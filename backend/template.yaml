@@ -1,0 +1,501 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Campus Marketplace - Serverless Backend
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs20.x
+    MemorySize: 256
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        LISTINGS_TABLE: !Ref ListingsTable
+        USERS_TABLE: !Ref UsersTable
+        REPORTS_TABLE: !Ref ReportsTable
+        IMAGES_BUCKET: !Ref ImagesBucket
+        JWT_SECRET: !Ref JwtSecret
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    Description: Deployment stage name
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Default: change-me-in-production
+    Description: Secret key for JWT token signing
+
+Resources:
+  # DynamoDB Table
+  ListingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Listings
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: listingId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: listingId
+          KeyType: HASH
+
+  # Users table for authentication
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # S3 Bucket for product images
+  ImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub campus-marketplace-images-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3000
+
+  ImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImagesBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${ImagesBucket}/*
+
+  # API Gateway
+  CampusMarketplaceApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+
+  # Lambda Functions
+  GetListingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getListings.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ListingsTable
+      Events:
+        GetListings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /listings
+            Method: GET
+
+  GetListingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getListing.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ListingsTable
+      Events:
+        GetListing:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /listings/{id}
+            Method: GET
+
+  CreateListingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/createListing.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ListingsTable
+      Events:
+        CreateListing:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /listings
+            Method: POST
+
+  UpdateListingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/updateListing.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ListingsTable
+        - S3CrudPolicy:
+            BucketName: !Ref ImagesBucket
+      Events:
+        UpdateListing:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /listings/{id}
+            Method: PUT
+
+  DeleteListingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/deleteListing.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ListingsTable
+        - S3CrudPolicy:
+            BucketName: !Ref ImagesBucket
+      Events:
+        DeleteListing:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /listings/{id}
+            Method: DELETE
+
+  UploadImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/uploadImage.handler
+      CodeUri: .
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref ImagesBucket
+      Events:
+        UploadImage:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /upload
+            Method: POST
+
+  # Auth Functions
+  RegisterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/register.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        Register:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /auth/register
+            Method: POST
+
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/login.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        Login:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /auth/login
+            Method: POST
+
+  GetMeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getMe.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /auth/me
+            Method: GET
+
+  GetUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getUsers.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /auth/users
+            Method: GET
+
+  UpdateUserRoleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/updateUserRole.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        UpdateUserRole:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /auth/users/{id}/role
+            Method: PUT
+
+
+  GetAdminDashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getAdminDashboard.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ListingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetAdminDashboard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/dashboard
+            Method: GET
+
+  GetAdminUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getAdminUsers.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetAdminUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/users
+            Method: GET
+
+  GetAdminUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getAdminUser.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetAdminUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/users/{id}
+            Method: GET
+
+  SuspendUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/suspendUser.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        SuspendUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/users/{id}/suspend
+            Method: PUT
+
+  ActivateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/activateUser.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        ActivateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/users/{id}/activate
+            Method: PUT
+
+  DeleteUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/deleteUser.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        DeleteUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/users/{id}
+            Method: DELETE
+
+  GetAdminListingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getAdminListings.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ListingsTable
+      Events:
+        GetAdminListings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/listings
+            Method: GET
+
+  DeleteAdminListingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/deleteAdminListing.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ListingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ReportsTable
+      Events:
+        DeleteAdminListing:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/listings/{id}
+            Method: DELETE
+
+  GetAdminReportsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getAdminReports.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ReportsTable
+      Events:
+        GetAdminReports:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/reports
+            Method: GET
+
+  ResolveReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/resolveReport.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ReportsTable
+      Events:
+        ResolveReport:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /admin/reports/{id}/resolve
+            Method: PUT
+
+  CreateReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/createReport.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ReportsTable
+      Events:
+        CreateReport:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CampusMarketplaceApi
+            Path: /listings/{id}/report
+            Method: POST
+
+  ReportsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Reports
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: reportId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: reportId
+          KeyType: HASH
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${CampusMarketplaceApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  ListingsTableName:
+    Description: DynamoDB table name
+    Value: !Ref ListingsTable
+  ImagesBucketName:
+    Description: S3 bucket for product images
+    Value: !Ref ImagesBucket
+  UsersTableName:
+    Description: DynamoDB users table name
+    Value: !Ref UsersTable
+  ReportsTableName:
+    Description: DynamoDB reports table name
+    Value: !Ref ReportsTable
